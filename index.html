@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+  <meta name="theme-color" content="#27382d" />
+  <title>小煎餅的尋找敖尹大冒險</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="game-shell" aria-label="小煎餅的尋找敖尹大冒險遊戲">
+    <canvas id="game" aria-label="遊戲畫面"></canvas>
+
+    <header class="hud">
+      <div class="score-pill" aria-live="polite">
+        <span class="pancake-icon">◎</span>
+        <span id="score">0</span>
+      </div>
+      <div class="distance"><span id="distance">0</span> m</div>
+      <button id="pauseBtn" class="icon-button" aria-label="暫停遊戲">Ⅱ</button>
+    </header>
+    <div id="stageLabel" class="stage-label">STAGE 01</div>
+    <div id="stageBanner" class="stage-banner" aria-live="polite"></div>
+
+    <section id="startScreen" class="overlay is-visible">
+      <div class="card start-card">
+        <p class="eyebrow">森林尋找大作戰</p>
+        <h1 class="adventure-title">🥞小煎餅的<br><span>尋找敖尹大冒險🐺</span></h1>
+        <p class="intro">敖尹去哪裡了！？穿過森林、循著足跡找到他！</p>
+        <div class="legend">
+          <span>🥞 +10</span><span>🫐 +5</span><span>🌰 +1</span>
+        </div>
+        <button id="continueBtn" class="primary-button">繼續冒險</button>
+        <button id="stageSelectBtn" class="secondary-button">選擇關卡</button>
+        <p class="hint">手機：滑動或按按鈕　電腦：← → / 空白鍵</p>
+      </div>
+    </section>
+
+    <section id="stageSelectScreen" class="overlay">
+      <div class="card stage-card">
+        <p class="eyebrow">冒險地圖</p>
+        <h2>選擇關卡</h2>
+        <div id="stageGrid" class="stage-grid"></div>
+        <button id="stageBackBtn" class="text-button">返回首頁</button>
+      </div>
+    </section>
+
+    <section id="pauseScreen" class="overlay">
+      <div class="card compact-card">
+        <p class="eyebrow">先喘口氣</p>
+        <h2>遊戲暫停</h2>
+        <button id="resumeBtn" class="primary-button">繼續前進</button>
+        <button id="restartPauseBtn" class="text-button">重新開始</button>
+      </div>
+    </section>
+
+    <section id="gameOverScreen" class="overlay">
+      <div class="card compact-card">
+        <p class="eyebrow">旅程結束</p>
+        <h2>跑了 <span id="finalDistance">0</span> 公尺</h2>
+        <div class="final-score"><small>總分</small><strong id="finalScore">0</strong></div>
+        <p id="bestText" class="best-text"></p>
+        <button id="restartBtn" class="primary-button">再跑一次</button>
+        <button id="gameOverHomeBtn" class="text-button">返回選擇關卡</button>
+      </div>
+    </section>
+
+    <section id="finishScreen" class="overlay">
+      <div class="card compact-card finish-card">
+        <p id="completeCode" class="eyebrow">STAGE CLEAR</p>
+        <div class="wolf-found">🐺</div>
+        <h2 id="completeTitle">關卡完成！</h2>
+        <div id="starResult" class="star-result">☆ ☆ ☆</div>
+        <p id="completeMessage">下一段森林道路已經開啟。</p>
+        <div class="final-score"><small>總分</small><strong id="winScore">0</strong></div>
+        <button id="nextStageBtn" class="primary-button">前往下一關</button>
+        <button id="finishHomeBtn" class="secondary-button">選擇關卡</button>
+      </div>
+    </section>
+
+    <div id="toast" class="toast" aria-live="polite"></div>
+
+    <nav class="controls" aria-label="遊戲操作">
+      <div class="move-controls">
+        <button id="leftBtn" aria-label="向左移動">←</button>
+        <button id="rightBtn" aria-label="向右移動">→</button>
+      </div>
+      <button id="jumpBtn" class="jump-button" aria-label="跳起"><span>↑</span><small>JUMP</small></button>
+    </nav>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>

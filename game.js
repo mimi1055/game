@@ -145,8 +145,6 @@
     } else { type = 'obstacle'; kind = Math.random() < .54 ? 'rock' : 'log'; }
     const lane = Math.floor(Math.random() * 3);
     objects.push({ type, kind, lane, y: -90, hit: false, phase: Math.random() * 6.28 });
-    if (currentStage === 3 && Math.random() < .28) objects.push({ type:'decor', kind:'paw', lane:Math.floor(Math.random()*3), y:-175, hit:true, phase:0 });
-
     if (Math.random() < .24) {
       const openLane = (lane + (Math.random() < .5 ? 1 : 2)) % 3;
       const pk = Math.random() < .3 ? 'berry' : 'acorn';
@@ -228,11 +226,6 @@
   function drawObject(o) {
     const x=laneX(o.lane), y=o.y + (o.type==='pickup'?Math.sin(o.phase)*5:0); ctx.save(); ctx.translate(x,y);
     if(o.hit) ctx.globalAlpha=.3;
-    if (o.kind === 'paw') {
-      ctx.fillStyle='rgba(91,61,61,.48)'; ctx.beginPath(); ctx.ellipse(0,7,9,11,0,0,7); ctx.fill();
-      [[-10,-6],[-3,-12],[5,-12],[12,-5]].forEach(([px,py])=>{ctx.beginPath();ctx.arc(px,py,4,0,7);ctx.fill();});
-      ctx.restore(); return;
-    }
     const spriteIndex = { pancake:0, berry:1, acorn:2, bear:3, caterpillar:5, rock:6, log:7 }[o.kind];
     if (art.objects.complete && art.objects.naturalWidth && spriteIndex !== undefined) {
       const sw = art.objects.naturalWidth / 3, sh = art.objects.naturalHeight / 3;

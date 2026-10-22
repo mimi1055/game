@@ -15,7 +15,9 @@
   let W = 390, H = 760, dpr = 1;
   let state = 'menu';
   let score = 0, available = 0, distance = 0, speed = 240, spawnTimer = 0, last = 0, time = 0;
-  let backgroundOffset = 0, hearts = 3, shake = 0, safeLane = 1;
+  let backgroundOffset = 0, hearts = 3, shake = 0, safeLane = 1, jumpBuffer = 0, lastTap = { time: 0, lane: 1 };
+  // 跳躍：初速與重力一起調高，起跳更快、落地更俐落（滯空約 0.58 秒）
+  const JUMP_V = 760, GRAVITY = 2600, DOUBLE_TAP_MS = 250;
   let currentStage = 0, stageBannerTimer = null;
   // 每顆心可承受一次石頭／木頭撞擊；改成 1 即回到「一撞就結束」
   const MAX_HEARTS = 3;
@@ -52,7 +54,7 @@
     background: Object.assign(new Image(), { src: 'assets/forest-loop.png' })
   };
   const lanes = [-0.29, 0, 0.29];
-  const player = { lane: 1, x: 0, y: 0, targetX: 0, hurt: 0 };
+  const player = { lane: 1, x: 0, y: 0, targetX: 0, jump: 0, jumpV: 0, hurt: 0 };
   const pickupDefs = {
     pancake: { score: 10, label: '+10' }, berry: { score: 5, label: '+5' }, acorn: { score: 1, label: '+1' }
   };
@@ -76,6 +78,7 @@
   }
   const sfx = {
     pickup: (big) => { tone(big ? 784 : 660, .08, 'triangle'); tone(big ? 1175 : 990, .12, 'triangle', .06, 0, .07); },
+    jump: () => tone(340, .12, 'square', .03, 720),
     enemy: () => tone(220, .22, 'sawtooth', .05, 90),
     crash: () => tone(150, .4, 'square', .07, 45),
     win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, .18, 'triangle', .06, 0, i * .11))
@@ -111,9 +114,9 @@
   function reset(stageIndex = currentStage) {
     // 開場留 1.3 秒給關卡橫幅，避免一開始就撞上東西
     score = 0; available = 0; distance = 0; speed = stages[stageIndex].speed[0]; spawnTimer = 1.3; objects = []; particles = []; floaters = [];
-    backgroundOffset = 0; hearts = MAX_HEARTS; shake = 0; safeLane = 1;
+    backgroundOffset = 0; hearts = MAX_HEARTS; shake = 0; safeLane = 1; jumpBuffer = 0; lastTap.time = 0;
     currentStage = stageIndex; ui.stageLabel.textContent = stages[currentStage].code;
-    player.lane = 1; player.x = player.targetX = laneX(1); player.hurt = 0;
+    player.lane = 1; player.x = player.targetX = laneX(1); player.jump = player.jumpV = player.hurt = 0;
     updateHUD();
   }
   function startGame(stageIndex = currentStage) {
@@ -137,7 +140,7 @@
     currentStage = index;
     const stage = stages[index];
     ui.stageLabel.textContent = stage.code;
-    ui.stageBanner.innerHTML = `<small>${stage.code}</small><br>${stage.name}` + (index === 0 ? '<br><small class="banner-tip">← 點左半邊　點右半邊 →</small>' : '');
+    ui.stageBanner.innerHTML = `<small>${stage.code}</small><br>${stage.name}` + (index === 0 ? '<br><small class="banner-tip">← 點左半邊　點右半邊 →　點兩下跳躍</small>' : '');
     ui.stageBanner.classList.add('show');
     clearTimeout(stageBannerTimer);
     stageBannerTimer = setTimeout(() => ui.stageBanner.classList.remove('show'), 1700);
@@ -186,6 +189,17 @@
     player.lane = Math.max(0, Math.min(2, player.lane + dir));
     player.targetX = laneX(player.lane);
   }
+  // 落地前一小段時間按跳也會記住，落地立刻起跳
+  function jump() { if (state === 'playing') jumpBuffer = .14; }
+  function doJump() { player.jumpV = JUMP_V; player.jump = 1; jumpBuffer = 0; burst(player.x, player.y + 24, '#e9efcf', 5); sfx.jump(); }
+  // 點一下換線；短時間內點第二下視為「點兩下」：撤回第一下的換線，原地跳起
+  function tap(dir) {
+    if (state !== 'playing') return;
+    const now = performance.now();
+    if (now - lastTap.time < DOUBLE_TAP_MS) {
+      player.lane = lastTap.lane; player.targetX = laneX(player.lane); lastTap.time = 0; jump();
+    } else { lastTap = { time: now, lane: player.lane }; move(dir); }
+  }
   function randomHazard(stage) {
     if (Math.random() < .5) { const r = Math.random(); return { type: 'enemy', kind: stage.snake && r < .3 ? 'snake' : r < .62 ? 'bear' : 'caterpillar' }; }
     return { type: 'obstacle', kind: Math.random() < .54 ? 'rock' : 'log' };
@@ -225,6 +239,12 @@
     speed = stage.speed[0] + (stage.speed[1] - stage.speed[0]) * p;
     if (distance >= stage.length) { finishGame(); return; }
     player.x += (player.targetX - player.x) * Math.min(1, dt * 13);
+    if (jumpBuffer > 0) { jumpBuffer -= dt; if (player.jump <= 0 && player.jumpV <= 0) doJump(); }
+    if (player.jump > 0 || player.jumpV > 0) {
+      player.jump += player.jumpV * dt;
+      player.jumpV -= GRAVITY * dt;
+      if (player.jump <= 0) { player.jump = 0; player.jumpV = 0; }
+    }
     player.hurt = Math.max(0, player.hurt - dt);
     spawnTimer -= dt;
     if (spawnTimer <= 0) { spawnObject(); spawnTimer = stage.gap[0] + (stage.gap[1] - stage.gap[0]) * p + Math.random() * .3; }
@@ -252,7 +272,7 @@
     if (o.type === 'pickup') {
       o.hit = o.remove = o.counted = true; score += pickupDefs[o.kind].score; available += pickupDefs[o.kind].score;
       floatText(laneX(o.lane), o.y - 30, pickupDefs[o.kind].label, '#fff1b0'); burst(laneX(o.lane), o.y, '#ffe08b', 10); sfx.pickup(o.kind === 'pancake');
-    } else {
+    } else if (player.jump < 45) {
       o.hit = true;
       if (player.hurt > 0) return; // 受傷後短暫無敵，閃爍期間直接穿過
       if (o.type === 'enemy') {
@@ -265,7 +285,7 @@
         if (hearts <= 0) {
           // 立刻進入 dying，避免在延遲期間暫停或過關而躲掉這次死亡
           state = 'dying'; showToast('撞到障礙物！', true); setTimeout(gameOver, 240);
-        } else showToast(hearts === 1 ? '小心！只剩最後一顆心' : '撞到了！換條路走', true);
+        } else showToast(hearts === 1 ? '小心！只剩最後一顆心' : '撞到了！點兩下可以跳過', true);
       }
     }
   }
@@ -332,8 +352,8 @@
     ctx.restore();
   }
   function drawPlayer() {
-    ctx.save();ctx.translate(player.x,player.y);if(player.hurt>0&&Math.floor(player.hurt*12)%2===0)ctx.globalAlpha=.35;
-    ctx.fillStyle='rgba(34,49,38,.22)';ctx.beginPath();ctx.ellipse(0,35,27,8,0,0,7);ctx.fill();
+    ctx.save();ctx.translate(player.x,player.y-player.jump);if(player.hurt>0&&Math.floor(player.hurt*12)%2===0)ctx.globalAlpha=.35;
+    ctx.fillStyle='rgba(34,49,38,.22)';ctx.beginPath();ctx.ellipse(0,35+player.jump,27-Math.min(12,player.jump/8),8,0,0,7);ctx.fill();
     const bob=state==='playing'?Math.sin(time*10)*2:0;ctx.translate(0,bob);
     if (art.character.complete && art.character.naturalWidth) {
       const sw = art.character.naturalWidth / 4, sh = art.character.naturalHeight;
@@ -379,14 +399,14 @@
   document.querySelectorAll('.sound-toggle').forEach(b=>b.onclick=toggleSound); renderSoundButtons();
   addEventListener('keydown',e=>{
     const k=e.key.length===1?e.key.toLowerCase():e.key;
-    if(['ArrowLeft','ArrowRight',' '].includes(k))e.preventDefault();
-    if(k==='ArrowLeft'||k==='a')move(-1);if(k==='ArrowRight'||k==='d')move(1);
+    if(['ArrowLeft','ArrowRight','ArrowUp',' '].includes(k))e.preventDefault();
+    if(k==='ArrowLeft'||k==='a')move(-1);if(k==='ArrowRight'||k==='d')move(1);if(k===' '||k==='ArrowUp'||k==='w')jump();
     if(k==='Escape'||k==='p')state==='paused'?resumeGame():pauseGame();
     // 選單畫面按 Enter 直接按下該畫面的主要按鈕
     if(k==='Enter'&&state!=='playing'){const btn=document.querySelector('.overlay.is-visible .primary-button:not([hidden])');if(btn){e.preventDefault();btn.click();}}
   });
-  // 點畫面左半邊往左一格、右半邊往右一格；按下瞬間就移動
-  canvas.addEventListener('pointerdown',e=>{e.preventDefault();const box=canvas.getBoundingClientRect();move(e.clientX-box.left<box.width/2?-1:1);});
+  // 點畫面左半邊往左一格、右半邊往右一格，按下瞬間就移動；快速點兩下跳躍
+  canvas.addEventListener('pointerdown',e=>{e.preventDefault();const box=canvas.getBoundingClientRect();tap(e.clientX-box.left<box.width/2?-1:1);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
   addEventListener('resize',resize);resize();renderStageSelect();requestAnimationFrame(loop);
 })();

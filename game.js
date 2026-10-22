@@ -5,31 +5,47 @@
   const ctx = canvas.getContext('2d');
   const $ = (id) => document.getElementById(id);
   const ui = {
-    score: $('score'), distance: $('distance'), pause: $('pauseBtn'), start: $('startScreen'),
+    score: $('score'), distance: $('distance'), goal: $('goalDistance'), hearts: $('hearts'), progress: $('progressFill'), pause: $('pauseBtn'), start: $('startScreen'),
     pauseScreen: $('pauseScreen'), over: $('gameOverScreen'), finish: $('finishScreen'), select: $('stageSelectScreen'), toast: $('toast'),
     finalScore: $('finalScore'), finalDistance: $('finalDistance'), best: $('bestText'),
     stageLabel: $('stageLabel'), stageBanner: $('stageBanner'), winScore: $('winScore'), stageGrid: $('stageGrid'),
-    completeCode: $('completeCode'), completeTitle: $('completeTitle'), completeMessage: $('completeMessage'), stars: $('starResult'), next: $('nextStageBtn')
+    completeCode: $('completeCode'), completeTitle: $('completeTitle'), completeMessage: $('completeMessage'), stars: $('starResult'), collect: $('collectText'), next: $('nextStageBtn')
   };
 
   let W = 390, H = 760, dpr = 1;
   let state = 'menu';
-  let score = 0, distance = 0, speed = 240, spawnTimer = 0, last = 0, time = 0;
-  let backgroundOffset = 0;
+  let score = 0, available = 0, distance = 0, speed = 240, spawnTimer = 0, last = 0, time = 0;
+  let backgroundOffset = 0, hearts = 3, shake = 0, jumpBuffer = 0;
   let currentStage = 0, stageBannerTimer = null;
+  // 每顆心可承受一次石頭／木頭撞擊；改成 1 即回到「一撞就結束」
+  const MAX_HEARTS = 3;
+  // speed / gap：關卡開頭 → 終點的跑速與生成間隔；hazard：生成物中危險物比例
   const stages = [
-    { code: 'STAGE 01', name: '森林入口', length: 90, stars: [12, 28, 45] },
-    { code: 'STAGE 02', name: '迷路的小徑', length: 110, stars: [18, 38, 60] },
-    { code: 'STAGE 03', name: '深林區域', length: 125, stars: [24, 48, 72] },
-    { code: 'STAGE 04', name: '敖尹的足跡', length: 140, stars: [30, 58, 86] },
-    { code: 'FINAL', name: '找到敖尹！', length: 160, stars: [35, 68, 100] }
+    { code: 'STAGE 01', name: '森林入口', length: 90, speed: [170, 210], gap: [1.25, 1.05], hazard: .5 },
+    { code: 'STAGE 02', name: '迷路的小徑', length: 110, speed: [185, 230], gap: [1.15, .95], hazard: .55 },
+    { code: 'STAGE 03', name: '深林區域', length: 125, speed: [195, 250], gap: [1.08, .88], hazard: .58, snake: true },
+    { code: 'STAGE 04', name: '敖尹的足跡', length: 140, speed: [205, 265], gap: [1.0, .82], hazard: .6, snake: true },
+    { code: 'FINAL', name: '找到敖尹！', length: 160, speed: [215, 285], gap: [.95, .76], hazard: .62, snake: true }
   ];
-  const saved = JSON.parse(localStorage.getItem('forest-runner-progress') || 'null');
-  let progress = saved || { unlocked: 0, scores: [0,0,0,0,0], stars: [0,0,0,0,0] };
-  progress.unlocked = Math.max(0, Math.min(4, Number(progress.unlocked) || 0));
-  progress.scores = Array.isArray(progress.scores) ? progress.scores : [0,0,0,0,0];
-  progress.stars = Array.isArray(progress.stars) ? progress.stars : [0,0,0,0,0];
-  let objects = [], particles = [], scenery = [], touchStart = null, toastTimer = null;
+  // 星等 = 本局拿到的分數 / 本局經過玩家身邊的道具總分
+  const starRatios = [.4, .65, .85];
+  const SAVE_KEY = 'forest-runner-progress', SOUND_KEY = 'forest-runner-sound';
+  function loadProgress() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { saved = null; }
+    if (!saved || typeof saved !== 'object') saved = {};
+    const list = (arr) => stages.map((_, i) => Math.max(0, Number(Array.isArray(arr) ? arr[i] : 0) || 0));
+    return {
+      unlocked: Math.max(0, Math.min(stages.length - 1, Number(saved.unlocked) || 0)),
+      scores: list(saved.scores),
+      stars: list(saved.stars).map(s => Math.min(3, s))
+    };
+  }
+  function saveProgress() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(progress)); } catch (e) { /* 無法存檔時仍可繼續遊玩 */ }
+  }
+  const progress = loadProgress();
+  let objects = [], particles = [], floaters = [], scenery = [], touchStart = null, toastTimer = null;
   const art = {
     character: Object.assign(new Image(), { src: 'assets/character-sheet.png' }),
     objects: Object.assign(new Image(), { src: 'assets/object-sheet-v2.png' }),
@@ -38,11 +54,41 @@
   const lanes = [-0.29, 0, 0.29];
   const player = { lane: 1, x: 0, y: 0, targetX: 0, jump: 0, jumpV: 0, hurt: 0 };
   const pickupDefs = {
-    pancake: { score: 10, label: '鬆餅 +10' }, berry: { score: 5, label: '樹果 +5' }, acorn: { score: 1, label: '橡實 +1' }
+    pancake: { score: 10, label: '+10' }, berry: { score: 5, label: '+5' }, acorn: { score: 1, label: '+1' }
   };
   const enemyDefs = {
-    bear: { score: -5, label: '撞到熊 -5' }, caterpillar: { score: -1, label: '撞到毛毛蟲 -1' }
+    bear: { score: -5, label: '-5' }, snake: { score: -3, label: '-3' }, caterpillar: { score: -1, label: '-1' }
   };
+
+  // 音效：用 WebAudio 即時合成，不需額外音檔
+  const sound = { on: true, ac: null };
+  try { sound.on = localStorage.getItem(SOUND_KEY) !== 'off'; } catch (e) { /* 預設開啟 */ }
+  function tone(freq, dur, type = 'sine', vol = .06, slide = 0, delay = 0) {
+    if (!sound.on) return;
+    try {
+      sound.ac = sound.ac || new (window.AudioContext || window.webkitAudioContext)();
+      const ac = sound.ac, t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+      o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
+    } catch (e) { /* 不支援音效時靜音遊玩 */ }
+  }
+  const sfx = {
+    pickup: (big) => { tone(big ? 784 : 660, .08, 'triangle'); tone(big ? 1175 : 990, .12, 'triangle', .06, 0, .07); },
+    jump: () => tone(320, .16, 'square', .03, 640),
+    enemy: () => tone(220, .22, 'sawtooth', .05, 90),
+    crash: () => tone(150, .4, 'square', .07, 45),
+    win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, .18, 'triangle', .06, 0, i * .11))
+  };
+  function renderSoundButtons() {
+    document.querySelectorAll('.sound-toggle').forEach(b => { b.textContent = sound.on ? '🔊 音效：開' : '🔇 音效：關'; });
+  }
+  function toggleSound() {
+    sound.on = !sound.on;
+    try { localStorage.setItem(SOUND_KEY, sound.on ? 'on' : 'off'); } catch (e) { /* 只影響本次 */ }
+    renderSoundButtons(); if (sound.on) sfx.pickup(false);
+  }
 
   function resize() {
     const box = canvas.getBoundingClientRect();
@@ -64,24 +110,29 @@
   }
 
   function reset(stageIndex = currentStage) {
-    score = 0; distance = 0; speed = 180; spawnTimer = .65; objects = []; particles = [];
-    backgroundOffset = 0;
+    // 開場留 1.3 秒給關卡橫幅，避免一開始就撞上東西
+    score = 0; available = 0; distance = 0; speed = stages[stageIndex].speed[0]; spawnTimer = 1.3; objects = []; particles = []; floaters = [];
+    backgroundOffset = 0; hearts = MAX_HEARTS; shake = 0; jumpBuffer = 0;
     currentStage = stageIndex; ui.stageLabel.textContent = stages[currentStage].code;
     player.lane = 1; player.x = player.targetX = laneX(1); player.jump = player.jumpV = player.hurt = 0;
     updateHUD();
   }
-  function startGame(stageIndex = currentStage) { reset(stageIndex); state = 'playing'; closeOverlays(); enterStage(stageIndex); last = performance.now(); }
+  function startGame(stageIndex = currentStage) {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    reset(stageIndex); state = 'playing'; closeOverlays(); enterStage(stageIndex); last = performance.now();
+  }
   function closeOverlays() { [ui.start, ui.pauseScreen, ui.over, ui.finish, ui.select].forEach(e => e.classList.remove('is-visible')); }
   function showHome() { state = 'menu'; closeOverlays(); renderStageSelect(); ui.start.classList.add('is-visible'); }
   function showStageSelect() { state = 'menu'; closeOverlays(); renderStageSelect(); ui.select.classList.add('is-visible'); }
   function pauseGame() { if (state !== 'playing') return; state = 'paused'; ui.pauseScreen.classList.add('is-visible'); }
   function resumeGame() { if (state !== 'paused') return; state = 'playing'; ui.pauseScreen.classList.remove('is-visible'); last = performance.now(); }
   function gameOver() {
-    if (state !== 'playing') return;
+    if (state !== 'dying') return;
     state = 'over';
     ui.finalScore.textContent = score; ui.finalDistance.textContent = Math.round(distance);
-    ui.best.textContent = `${stages[currentStage].code}｜${stages[currentStage].name}`;
-    setTimeout(() => ui.over.classList.add('is-visible'), 350);
+    const best = progress.scores[currentStage];
+    ui.best.textContent = `${stages[currentStage].code}｜${stages[currentStage].name}${best ? `｜最高 ${best} 分` : ''}`;
+    setTimeout(() => ui.over.classList.add('is-visible'), 450);
   }
   function enterStage(index) {
     currentStage = index;
@@ -96,18 +147,23 @@
     if (state !== 'playing') return;
     state = 'won';
     const stage = stages[currentStage];
-    const earned = stage.stars.filter(target => score >= target).length;
+    const ratio = available > 0 ? score / available : 0;
+    const earned = starRatios.filter(r => ratio >= r).length;
+    const isRecord = score > (progress.scores[currentStage] || 0);
     progress.scores[currentStage] = Math.max(progress.scores[currentStage] || 0, score);
     progress.stars[currentStage] = Math.max(progress.stars[currentStage] || 0, earned);
     if (currentStage < stages.length - 1) progress.unlocked = Math.max(progress.unlocked, currentStage + 1);
-    localStorage.setItem('forest-runner-progress', JSON.stringify(progress));
+    saveProgress();
     ui.winScore.textContent = score;
     ui.completeCode.textContent = `${stage.code} CLEAR`;
     ui.completeTitle.textContent = currentStage === 4 ? '找到敖尹了！' : `${stage.name}完成！`;
     ui.completeMessage.textContent = currentStage === 4 ? '敖尹在森林深處等著小煎餅。' : '下一段森林道路已經開啟。';
     ui.stars.textContent = `${'★'.repeat(earned)}${'☆'.repeat(3-earned)}`;
+    const nextRatio = starRatios[earned];
+    ui.collect.textContent = `收集率 ${Math.round(ratio * 100)}%` + (isRecord ? '｜新紀錄！' : '') + (nextRatio ? `｜${Math.round(nextRatio * 100)}% 可得 ${earned + 1} 星` : '');
     ui.next.hidden = currentStage >= stages.length - 1;
     burst(player.x, player.y - 35, '#ffe28b', 24);
+    sfx.win();
     setTimeout(() => ui.finish.classList.add('is-visible'), 450);
   }
   function renderStageSelect() {
@@ -131,19 +187,25 @@
     player.lane = Math.max(0, Math.min(2, player.lane + dir));
     player.targetX = laneX(player.lane);
   }
-  function jump() {
-    if (state === 'playing' && player.jump <= 0) { player.jumpV = 620; player.jump = 1; burst(player.x, player.y + 24, '#e9efcf', 5); }
-  }
+  // 落地前一小段時間按跳也會記住，落地立刻起跳
+  function jump() { if (state === 'playing') jumpBuffer = .14; }
+  function doJump() { player.jumpV = 620; player.jump = 1; jumpBuffer = 0; burst(player.x, player.y + 24, '#e9efcf', 5); sfx.jump(); }
 
   function spawnObject() {
+    const stage = stages[currentStage];
     const roll = Math.random();
     let kind, type;
-    if (roll < .42) {
+    if (roll >= stage.hazard) {
       type = 'pickup'; const r = Math.random(); kind = r < .19 ? 'pancake' : r < .52 ? 'berry' : 'acorn';
-    } else if (roll < .72) {
-      type = 'enemy'; kind = Math.random() < .45 ? 'bear' : 'caterpillar';
+    } else if (Math.random() < .5) {
+      type = 'enemy'; const r = Math.random(); kind = stage.snake && r < .3 ? 'snake' : r < .62 ? 'bear' : 'caterpillar';
     } else { type = 'obstacle'; kind = Math.random() < .54 ? 'rock' : 'log'; }
     const lane = Math.floor(Math.random() * 3);
+    // 公平性：剛生成的危險物若已佔兩條路，第三條路改放道具，避免死路
+    if (type !== 'pickup') {
+      const blocked = new Set(objects.filter(o => o.type !== 'pickup' && o.y < 150).map(o => o.lane));
+      if (blocked.size >= 2 && !blocked.has(lane)) { type = 'pickup'; kind = 'berry'; }
+    }
     objects.push({ type, kind, lane, y: -90, hit: false, phase: Math.random() * 6.28 });
     if (Math.random() < .24) {
       const openLane = (lane + (Math.random() < .5 ? 1 : 2)) % 3;
@@ -154,14 +216,19 @@
 
   function update(dt) {
     time += dt;
+    shake = Math.max(0, shake - dt);
+    if (state === 'dying') { player.hurt = Math.max(0, player.hurt - dt); updateParticles(dt); return; }
     if (state !== 'playing') return;
+    const stage = stages[currentStage];
     const tileHeight = art.background.naturalWidth ? W * art.background.naturalHeight / art.background.naturalWidth : H;
     backgroundOffset += speed * dt * .38;
     while (backgroundOffset >= tileHeight) backgroundOffset -= tileHeight;
     distance += dt * speed * .032;
-    speed = Math.min(285, 180 + distance * .30);
-    if (distance >= stages[currentStage].length) { finishGame(); return; }
+    const p = Math.min(1, distance / stage.length);
+    speed = stage.speed[0] + (stage.speed[1] - stage.speed[0]) * p;
+    if (distance >= stage.length) { finishGame(); return; }
     player.x += (player.targetX - player.x) * Math.min(1, dt * 13);
+    if (jumpBuffer > 0) { jumpBuffer -= dt; if (player.jump <= 0 && player.jumpV <= 0) doJump(); }
     if (player.jump > 0 || player.jumpV > 0) {
       player.jump += player.jumpV * dt;
       player.jumpV -= 1500 * dt;
@@ -169,36 +236,60 @@
     }
     player.hurt = Math.max(0, player.hurt - dt);
     spawnTimer -= dt;
-    if (spawnTimer <= 0) { spawnObject(); spawnTimer = Math.max(.72, 1.22 - distance / 1050) + Math.random() * .32; }
+    if (spawnTimer <= 0) { spawnObject(); spawnTimer = stage.gap[0] + (stage.gap[1] - stage.gap[0]) * p + Math.random() * .3; }
 
     for (const o of objects) {
       o.y += speed * dt;
       o.phase += dt * 4;
       if (!o.hit && o.type !== 'decor' && o.lane === player.lane && Math.abs(o.y - player.y) < 43) collide(o);
+      if (state !== 'playing') break;
+      // 錯過的道具也算進本局可拿總分
+      if (o.type === 'pickup' && !o.counted && o.y > player.y + 43) { o.counted = true; available += pickupDefs[o.kind].score; }
     }
     objects = objects.filter(o => o.y < H + 130 && !o.remove);
+    updateParticles(dt);
+    updateHUD();
+  }
+  function updateParticles(dt) {
     particles.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 170 * dt; p.life -= dt; });
     particles = particles.filter(p => p.life > 0);
-    updateHUD();
+    floaters.forEach(f => { f.y -= 55 * dt; f.life -= dt; });
+    floaters = floaters.filter(f => f.life > 0);
   }
 
   function collide(o) {
     if (o.type === 'pickup') {
-      o.hit = o.remove = true; score += pickupDefs[o.kind].score; showToast(pickupDefs[o.kind].label, false); burst(laneX(o.lane), o.y, '#ffe08b', 10);
+      o.hit = o.remove = o.counted = true; score += pickupDefs[o.kind].score; available += pickupDefs[o.kind].score;
+      floatText(laneX(o.lane), o.y - 30, pickupDefs[o.kind].label, '#fff1b0'); burst(laneX(o.lane), o.y, '#ffe08b', 10); sfx.pickup(o.kind === 'pancake');
     } else if (player.jump < 45) {
       o.hit = true;
+      if (player.hurt > 0) return; // 受傷後短暫無敵，閃爍期間直接穿過
       if (o.type === 'enemy') {
-        score = Math.max(0, score + enemyDefs[o.kind].score); showToast(enemyDefs[o.kind].label, true); player.hurt = .75; burst(player.x, player.y, '#ef9181', 8);
+        score = Math.max(0, score + enemyDefs[o.kind].score); floatText(player.x, player.y - 70, enemyDefs[o.kind].label, '#ffb3a6');
+        player.hurt = .75; shake = .18; burst(player.x, player.y, '#ef9181', 8); sfx.enemy();
       } else {
-        showToast('撞到障礙物！', true); player.hurt = 1; burst(player.x, player.y, '#ef9181', 12); setTimeout(gameOver, 240);
+        hearts--; shake = .35; player.hurt = 1.2; burst(player.x, player.y, '#ef9181', 12); sfx.crash();
+        if (navigator.vibrate) navigator.vibrate(hearts > 0 ? 80 : 200);
+        updateHUD();
+        if (hearts <= 0) {
+          // 立刻進入 dying，避免在延遲期間暫停或過關而躲掉這次死亡
+          state = 'dying'; showToast('撞到障礙物！', true); setTimeout(gameOver, 240);
+        } else showToast(hearts === 1 ? '小心！只剩最後一顆心' : '撞到了！跳起來可以越過', true);
       }
     }
   }
-  function updateHUD() { ui.score.textContent = score; ui.distance.textContent = Math.round(distance); }
+  function updateHUD() {
+    const stage = stages[currentStage];
+    ui.score.textContent = score; ui.distance.textContent = Math.min(stage.length, Math.round(distance)); ui.goal.textContent = stage.length;
+    ui.progress.style.width = `${Math.min(100, distance / stage.length * 100)}%`;
+    ui.hearts.textContent = '❤'.repeat(Math.max(0, hearts)) + '♡'.repeat(Math.max(0, MAX_HEARTS - hearts));
+    ui.hearts.hidden = MAX_HEARTS <= 1;
+  }
   function showToast(text, bad) {
     clearTimeout(toastTimer); ui.toast.textContent = text; ui.toast.style.color = bad ? '#9f433b' : '#48683e'; ui.toast.classList.add('show');
-    toastTimer = setTimeout(() => ui.toast.classList.remove('show'), 850);
+    toastTimer = setTimeout(() => ui.toast.classList.remove('show'), 1100);
   }
+  function floatText(x, y, text, color) { floaters.push({ x, y, text, color, life: .8 }); }
   function burst(x, y, color, count) { for (let i = 0; i < count; i++) particles.push({ x, y, color, vx: (Math.random()-.5)*150, vy: -50-Math.random()*120, life: .45+Math.random()*.3, size: 3+Math.random()*4 }); }
 
   function roundedRect(x,y,w,h,r,fill) { ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fillStyle=fill; ctx.fill(); }
@@ -226,13 +317,14 @@
   function drawObject(o) {
     const x=laneX(o.lane), y=o.y + (o.type==='pickup'?Math.sin(o.phase)*5:0); ctx.save(); ctx.translate(x,y);
     if(o.hit) ctx.globalAlpha=.3;
-    const spriteIndex = { pancake:0, berry:1, acorn:2, bear:3, caterpillar:5, rock:6, log:7 }[o.kind];
+    const spriteIndex = { pancake:0, berry:1, acorn:2, bear:3, snake:4, caterpillar:5, rock:6, log:7 }[o.kind];
     if (art.objects.complete && art.objects.naturalWidth && spriteIndex !== undefined) {
       const sw = art.objects.naturalWidth / 3, sh = art.objects.naturalHeight / 3;
       const sx = (spriteIndex % 3) * sw, sy = Math.floor(spriteIndex / 3) * sh;
       let dw = o.type === 'pickup' ? 112 : o.type === 'enemy' ? 142 : 155;
       let dh = dw * sh / sw;
       if (o.kind === 'bear') { dw = 150; dh = 112; }
+      if (o.kind === 'snake') { dw = 150; dh = 100; }
       if (o.kind === 'caterpillar') { dw = 164; dh = 102; }
       if (o.kind === 'log') { dw = 175; dh = 108; }
       ctx.drawImage(art.objects, sx, sy, sw, sh, -dw/2, -dh/2, dw, dh);
@@ -243,7 +335,7 @@
     if(o.kind==='berry'){ctx.fillStyle='#674b9b';[[-12,-4],[1,-8],[13,-1],[-4,7],[9,9]].forEach(([a,b])=>{ctx.beginPath();ctx.arc(a,b,10,0,7);ctx.fill();});ctx.strokeStyle='#496347';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,-14);ctx.lineTo(7,-23);ctx.stroke();}
     if(o.kind==='acorn'){ctx.fillStyle='#985d38';ctx.beginPath();ctx.ellipse(0,2,14,18,0,0,7);ctx.fill();ctx.fillStyle='#59432f';ctx.beginPath();ctx.ellipse(0,-9,16,7,0,0,7);ctx.fill();ctx.fillRect(-2,-20,4,7);}
     if(o.kind==='bear'){ctx.fillStyle='#70523d';ctx.beginPath();ctx.arc(-17,-21,10,0,7);ctx.arc(17,-21,10,0,7);ctx.fill();roundedRect(-28,-24,56,54,20,'#765840');ctx.fillStyle='#d5b695';ctx.beginPath();ctx.ellipse(0,5,15,12,0,0,7);ctx.fill();ctx.fillStyle='#292820';ctx.beginPath();ctx.arc(0,0,4,0,7);ctx.fill();ctx.fillRect(-12,-12,4,5);ctx.fillRect(8,-12,4,5);}
-    if(o.kind==='caterpillar'){[-22,-10,2,14,25].forEach((a,i)=>{ctx.fillStyle=i===4?'#9cad67':'#c0ca78';ctx.beginPath();ctx.arc(a,Math.sin(i)*5,11,0,7);ctx.fill();});ctx.fillStyle='#3a3c31';ctx.fillRect(22,-5,3,4);ctx.fillRect(29,-5,3,4);}
+    if(o.kind==='caterpillar'||o.kind==='snake'){[-22,-10,2,14,25].forEach((a,i)=>{ctx.fillStyle=i===4?'#9cad67':'#c0ca78';ctx.beginPath();ctx.arc(a,Math.sin(i)*5,11,0,7);ctx.fill();});ctx.fillStyle='#3a3c31';ctx.fillRect(22,-5,3,4);ctx.fillRect(29,-5,3,4);}
     if(o.kind==='rock'){ctx.fillStyle='#727c78';ctx.beginPath();ctx.moveTo(-31,21);ctx.lineTo(-24,-4);ctx.lineTo(-7,-24);ctx.lineTo(18,-18);ctx.lineTo(32,20);ctx.closePath();ctx.fill();ctx.fillStyle='#9aa39b';ctx.beginPath();ctx.moveTo(-20,-2);ctx.lineTo(-7,-18);ctx.lineTo(5,-14);ctx.closePath();ctx.fill();}
     if(o.kind==='log'){roundedRect(-36,-17,72,34,12,'#79583f');ctx.strokeStyle='#4f3e31';ctx.lineWidth=4;ctx.beginPath();ctx.arc(-25,0,11,0,7);ctx.stroke();ctx.beginPath();ctx.moveTo(-5,-15);ctx.lineTo(5,15);ctx.moveTo(18,-15);ctx.lineTo(28,12);ctx.stroke();}
     ctx.restore();
@@ -255,7 +347,9 @@
     if (art.character.complete && art.character.naturalWidth) {
       const sw = art.character.naturalWidth / 4, sh = art.character.naturalHeight;
       const delta = player.targetX - player.x;
-      const frame = delta < -3 ? 1 : delta > 3 ? 3 : 2;
+      // 素材第 2、4 格都朝左；往右時把朝左的側面水平翻轉
+      const frame = Math.abs(delta) > 3 ? 1 : 2;
+      if (delta > 3) ctx.scale(-1, 1);
       const dh = 112, dw = dh * sw / sh;
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(art.character, frame * sw, 0, sw, sh, -dw/2, -dh + 36, dw, dh);
@@ -268,7 +362,17 @@
     ctx.fillStyle='#f2cfbf';ctx.beginPath();ctx.ellipse(0,-19,18,16,0,0,7);ctx.fill();ctx.fillStyle='#282c2c';ctx.fillRect(-8,-21,3,5);ctx.fillRect(6,-21,3,5);ctx.fillStyle='#31383a';ctx.beginPath();ctx.arc(0,-47,13,0,7);ctx.fill();
     ctx.restore();
   }
-  function draw() { ctx.clearRect(0,0,W,H);drawGround();const tints=['rgba(226,191,112,.02)','rgba(102,132,104,.05)','rgba(25,55,43,.13)','rgba(82,55,79,.10)','rgba(247,210,115,.08)'];ctx.fillStyle=tints[currentStage];ctx.fillRect(0,0,W,H);objects.slice().sort((a,b)=>a.y-b.y).forEach(drawObject);drawPlayer();particles.forEach(p=>{ctx.globalAlpha=Math.max(0,p.life*2);ctx.fillStyle=p.color;ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);});ctx.globalAlpha=1; }
+  function drawFloaters() {
+    ctx.save(); ctx.textAlign='center'; ctx.font='900 24px ui-rounded, "Noto Sans TC", "Microsoft JhengHei", sans-serif'; ctx.lineWidth=5; ctx.strokeStyle='rgba(30,43,35,.75)';
+    floaters.forEach(f=>{ctx.globalAlpha=Math.min(1,f.life*2.5);ctx.strokeText(f.text,f.x,f.y);ctx.fillStyle=f.color;ctx.fillText(f.text,f.x,f.y);});
+    ctx.restore();
+  }
+  function draw() {
+    ctx.clearRect(0,0,W,H); ctx.save();
+    if (shake > 0) ctx.translate((Math.random()-.5)*shake*30, (Math.random()-.5)*shake*30);
+    drawGround();const tints=['rgba(226,191,112,.02)','rgba(102,132,104,.05)','rgba(25,55,43,.13)','rgba(82,55,79,.10)','rgba(247,210,115,.08)'];ctx.fillStyle=tints[currentStage];ctx.fillRect(-20,-20,W+40,H+40);objects.slice().sort((a,b)=>a.y-b.y).forEach(drawObject);drawPlayer();particles.forEach(p=>{ctx.globalAlpha=Math.max(0,p.life*2);ctx.fillStyle=p.color;ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);});ctx.globalAlpha=1;drawFloaters();
+    ctx.restore();
+  }
   function loop(now) { const dt=Math.min(.035,(now-last)/1000||0);last=now;update(dt);draw();requestAnimationFrame(loop); }
 
   function bindHold(id, onPress) { const e=$(id); e.addEventListener('pointerdown',ev=>{ev.preventDefault();e.classList.add('is-pressed');onPress();});['pointerup','pointercancel','pointerleave'].forEach(n=>e.addEventListener(n,()=>e.classList.remove('is-pressed'))); }
@@ -278,13 +382,25 @@
   $('stageBackBtn').onclick=showHome;
   $('restartBtn').onclick=()=>startGame(currentStage);
   $('restartPauseBtn').onclick=()=>startGame(currentStage);
+  $('pauseHomeBtn').onclick=showStageSelect;
   $('gameOverHomeBtn').onclick=showStageSelect;
   $('finishHomeBtn').onclick=showStageSelect;
   $('nextStageBtn').onclick=()=>startGame(Math.min(stages.length-1,currentStage+1));
   $('resumeBtn').onclick=resumeGame;ui.pause.onclick=()=>state==='paused'?resumeGame():pauseGame();
-  addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight',' ','Space'].includes(e.key))e.preventDefault();if(e.key==='ArrowLeft'||e.key==='a')move(-1);if(e.key==='ArrowRight'||e.key==='d')move(1);if(e.key===' '||e.key==='ArrowUp'||e.key==='w')jump();if(e.key==='Escape')state==='paused'?resumeGame():pauseGame();});
-  canvas.addEventListener('pointerdown',e=>{touchStart={x:e.clientX,y:e.clientY};});
-  canvas.addEventListener('pointerup',e=>{if(!touchStart)return;const dx=e.clientX-touchStart.x,dy=e.clientY-touchStart.y;if(Math.abs(dx)>35&&Math.abs(dx)>Math.abs(dy))move(dx>0?1:-1);else if(dy<-28||Math.abs(dx)<12)jump();touchStart=null;});
+  document.querySelectorAll('.sound-toggle').forEach(b=>b.onclick=toggleSound); renderSoundButtons();
+  addEventListener('keydown',e=>{
+    const k=e.key.length===1?e.key.toLowerCase():e.key;
+    if(['ArrowLeft','ArrowRight','ArrowUp',' '].includes(k))e.preventDefault();
+    if(k==='ArrowLeft'||k==='a')move(-1);if(k==='ArrowRight'||k==='d')move(1);if(k===' '||k==='ArrowUp'||k==='w')jump();
+    if(k==='Escape'||k==='p')state==='paused'?resumeGame():pauseGame();
+    // 選單畫面按 Enter 直接按下該畫面的主要按鈕
+    if(k==='Enter'&&state!=='playing'){const btn=document.querySelector('.overlay.is-visible .primary-button:not([hidden])');if(btn){e.preventDefault();btn.click();}}
+  });
+  // 滑動在手指移動途中就判定，不必等放開；輕點畫面則是跳躍
+  canvas.addEventListener('pointerdown',e=>{touchStart={x:e.clientX,y:e.clientY,used:false};});
+  canvas.addEventListener('pointermove',e=>{if(!touchStart||touchStart.used)return;const dx=e.clientX-touchStart.x,dy=e.clientY-touchStart.y;if(Math.abs(dx)>30&&Math.abs(dx)>Math.abs(dy)){move(dx>0?1:-1);touchStart.used=true;}else if(dy<-30&&Math.abs(dy)>Math.abs(dx)){jump();touchStart.used=true;}});
+  canvas.addEventListener('pointerup',e=>{if(!touchStart)return;const dx=e.clientX-touchStart.x,dy=e.clientY-touchStart.y;if(!touchStart.used&&Math.abs(dx)<12&&Math.abs(dy)<12)jump();touchStart=null;});
+  canvas.addEventListener('pointercancel',()=>{touchStart=null;});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
   addEventListener('resize',resize);resize();renderStageSelect();requestAnimationFrame(loop);
 })();

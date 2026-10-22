@@ -12,14 +12,20 @@
     <canvas id="game" aria-label="遊戲畫面"></canvas>
 
     <header class="hud">
-      <div class="score-pill" aria-live="polite">
-        <span class="pancake-icon">◎</span>
-        <span id="score">0</span>
+      <div class="score-box">
+        <div class="score-pill" aria-live="polite">
+          <span class="pancake-icon">◎</span>
+          <span id="score">0</span>
+        </div>
+        <div id="hearts" class="hearts" aria-label="剩餘愛心">❤❤❤</div>
       </div>
-      <div class="distance"><span id="distance">0</span> m</div>
+      <div class="distance"><span id="distance">0</span> / <span id="goalDistance">90</span> m</div>
       <button id="pauseBtn" class="icon-button" aria-label="暫停遊戲">Ⅱ</button>
     </header>
-    <div id="stageLabel" class="stage-label">STAGE 01</div>
+    <div class="stage-track">
+      <div id="stageLabel" class="stage-label">STAGE 01</div>
+      <div class="progress-bar" aria-hidden="true"><div id="progressFill" class="progress-fill"></div><span class="progress-goal">🐺</span></div>
+    </div>
     <div id="stageBanner" class="stage-banner" aria-live="polite"></div>
 
     <section id="startScreen" class="overlay is-visible">
@@ -32,7 +38,8 @@
         </div>
         <button id="continueBtn" class="primary-button">繼續冒險</button>
         <button id="stageSelectBtn" class="secondary-button">選擇關卡</button>
-        <p class="hint">手機：滑動或按按鈕　電腦：← → / 空白鍵</p>
+        <p class="hint">共 3 顆 ❤，撞到石頭、木頭會少一顆<br>手機：滑動／按鈕　電腦：← → 與空白鍵</p>
+        <button class="text-button sound-toggle">🔊 音效：開</button>
       </div>
     </section>
 
@@ -50,7 +57,9 @@
         <p class="eyebrow">先喘口氣</p>
         <h2>遊戲暫停</h2>
         <button id="resumeBtn" class="primary-button">繼續前進</button>
-        <button id="restartPauseBtn" class="text-button">重新開始</button>
+        <button id="restartPauseBtn" class="secondary-button">重新開始</button>
+        <button id="pauseHomeBtn" class="text-button">返回選擇關卡</button>
+        <button class="text-button sound-toggle">🔊 音效：開</button>
       </div>
     </section>
 
@@ -71,6 +80,7 @@
         <div class="wolf-found">🐺</div>
         <h2 id="completeTitle">關卡完成！</h2>
         <div id="starResult" class="star-result">☆ ☆ ☆</div>
+        <p id="collectText" class="collect-text"></p>
         <p id="completeMessage">下一段森林道路已經開啟。</p>
         <div class="final-score"><small>總分</small><strong id="winScore">0</strong></div>
         <button id="nextStageBtn" class="primary-button">前往下一關</button>

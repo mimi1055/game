@@ -37,7 +37,14 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; user-select:
 .score-pill { justify-self: start; display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: 26px; }
 .pancake-icon { display: grid; place-items: center; width: 39px; height: 31px; border-radius: 50%; color: #fff7d2; background: #c57c43; border: 4px solid #f7d696; box-shadow: inset 0 -7px #9f5f38, 0 2px 0 #fff7df; }
 .distance { padding: 7px 13px; border-radius: 999px; font-weight: 800; background: rgba(34, 52, 41, .42); backdrop-filter: blur(5px); }
-.stage-label { position: absolute; z-index: 4; top: max(70px, calc(env(safe-area-inset-top) + 60px)); left: 50%; transform: translateX(-50%); padding: 5px 11px; border-radius: 999px; color: #f8f1d9; background: rgba(38,58,44,.52); font-size: 11px; font-weight: 900; letter-spacing: .12em; pointer-events: none; }
+.score-box { justify-self: start; display: grid; gap: 4px; }
+.hearts { color: #ff8d86; font-size: 18px; letter-spacing: .08em; }
+.stage-track { position: absolute; z-index: 4; top: max(70px, calc(env(safe-area-inset-top) + 60px)); left: 50%; transform: translateX(-50%); width: min(62%, 280px); display: grid; justify-items: center; gap: 7px; pointer-events: none; }
+.progress-bar { position: relative; width: 100%; height: 8px; border-radius: 999px; background: rgba(31,47,38,.5); border: 1px solid rgba(255,255,255,.35); }
+.progress-fill { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #f7d696, #ffe9a8); }
+.progress-goal { position: absolute; right: -12px; top: 50%; transform: translateY(-50%); font-size: 18px; }
+.collect-text { margin: -6px 0 10px; color: #7a6a3a; font-size: 13px; font-weight: 800; }
+.stage-label { padding: 5px 11px; border-radius: 999px; color: #f8f1d9; background: rgba(38,58,44,.52); font-size: 11px; font-weight: 900; letter-spacing: .12em; pointer-events: none; }
 .stage-banner { position: absolute; z-index: 7; top: 18%; left: 50%; width: min(88%, 410px); transform: translate(-50%,-8px) scale(.96); padding: 15px 18px; border: 2px solid rgba(255,255,255,.65); border-radius: 18px; opacity: 0; color: #334438; background: rgba(248,243,220,.93); text-align: center; font-size: 21px; font-weight: 1000; box-shadow: 0 9px 24px rgba(22,37,27,.25); transition: .25s; pointer-events: none; }
 .stage-banner.show { opacity: 1; transform: translate(-50%,0) scale(1); }
 .icon-button { pointer-events: auto; justify-self: end; width: 46px; height: 46px; border: 4px solid rgba(255,255,255,.75); border-radius: 12px; font-weight: 1000; font-size: 25px; color: var(--ink); background: var(--cream); box-shadow: 0 4px 0 rgba(34,47,39,.7); }

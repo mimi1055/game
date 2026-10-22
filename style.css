@@ -70,6 +70,11 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; user-select:
 .primary-button:active { transform: translateY(3px); box-shadow: 0 2px 0 #3c543e; }
 .secondary-button { width: 100%; margin-top: 12px; padding: 13px 18px; border: 2px solid #80927b; border-radius: 16px; color: #536953; background: rgba(255,255,255,.38); font-size: 16px; font-weight: 900; }
 .hint { margin: 19px 0 0; color: #6a7369; font-size: 12px; }
+.background-picker { display: grid; gap: 6px; margin-top: 15px; text-align: left; color: #536953; font-size: 13px; font-weight: 800; }
+.background-select { width: 100%; min-height: 42px; padding: 8px 12px; border: 2px solid #80927b; border-radius: 12px; color: #304034; background: #f6f2e0; font: inherit; }
+.background-select:focus-visible { outline: 3px solid #bd9149; outline-offset: 2px; }
+.background-status { font-size: 11px; font-weight: 400; }
+.start-card, #pauseScreen .card { max-height: calc(100dvh - 48px); overflow-y: auto; touch-action: pan-y; }
 .compact-card h2 { margin: 4px 0 22px; font-size: 30px; }
 .stage-card { max-height: min(88dvh, 760px); overflow: auto; }
 .stage-card h2 { margin: 2px 0 18px; font-size: 31px; }

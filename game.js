@@ -57,6 +57,44 @@
     background: Object.assign(new Image(), { src: 'assets/forest-loop.png' })
   };
   const lanes = [-0.29, 0, 0.29];
+  const backgrounds = [
+    { id: 'original', name: '原版森林', src: 'assets/forest-loop.png' },
+    { id: 'sunlit', name: '暖陽疏林', src: 'assets/forest-sunlit.png' },
+    { id: 'fern', name: '蕨葉密林', src: 'assets/forest-fern.png' },
+    { id: 'mist', name: '薄霧森林', src: 'assets/forest-mist.png' }
+  ];
+  const BACKGROUND_KEY = 'forest-runner-background';
+  let backgroundChoice = 'original', backgroundRequest = 0;
+  try { backgroundChoice = localStorage.getItem(BACKGROUND_KEY) || 'original'; } catch (e) { /* 使用原版 */ }
+  if (!backgrounds.some(b => b.id === backgroundChoice)) backgroundChoice = 'original';
+  function selectBackground(id) {
+    const definition = backgrounds.find(b => b.id === id);
+    if (!definition) return;
+    const request = ++backgroundRequest, next = new Image();
+    document.querySelectorAll('.background-status').forEach(el => { el.textContent = '背景載入中…'; });
+    next.onload = () => {
+      if (request !== backgroundRequest) return;
+      art.background = next; backgroundOffset = 0; backgroundChoice = id;
+      try { localStorage.setItem(BACKGROUND_KEY, id); } catch (e) { /* 本次仍可切換 */ }
+      syncBackgroundControls();
+    };
+    next.onerror = () => {
+      if (request !== backgroundRequest) return;
+      syncBackgroundControls();
+      document.querySelectorAll('.background-status').forEach(el => { el.textContent = '載入失敗，保留目前背景'; });
+    };
+    next.src = definition.src;
+  }
+  function syncBackgroundControls() {
+    document.querySelectorAll('.background-select').forEach(el => { el.value = backgroundChoice; });
+    document.querySelectorAll('.background-status').forEach(el => { el.textContent = '所有關卡使用此背景'; });
+  }
+  document.querySelectorAll('.background-select').forEach(el => {
+    backgrounds.forEach(b => { const option = document.createElement('option'); option.value = b.id; option.textContent = b.name; el.append(option); });
+    el.addEventListener('change', () => selectBackground(el.value));
+  });
+  syncBackgroundControls();
+  selectBackground(backgroundChoice);
   const player = { lane: 1, x: 0, y: 0, targetX: 0, jump: 0, jumpV: 0, hurt: 0 };
   const pickupDefs = {
     pancake: { score: 10, label: '+10' }, berry: { score: 5, label: '+5' }, acorn: { score: 1, label: '+1' }
@@ -228,7 +266,7 @@
     const stage = stages[currentStage];
     const tileHeight = art.background.naturalWidth ? W * art.background.naturalHeight / art.background.naturalWidth : H;
     backgroundOffset += speed * dt * .38;
-    while (backgroundOffset >= tileHeight) backgroundOffset -= tileHeight;
+    while (backgroundOffset >= tileHeight * 2) backgroundOffset -= tileHeight * 2;
     distance += dt * speed * .032;
     const p = Math.min(1, distance / stage.length);
     speed = stage.speed[0] + (stage.speed[1] - stage.speed[0]) * p;
@@ -312,7 +350,12 @@
       ctx.imageSmoothingEnabled = false;
       for (let j = -2; j <= Math.ceil(H / tileHeight); j++) {
         const y = backgroundOffset + j * tileHeight;
-        ctx.drawImage(art.background, 0, y, W, tileHeight);
+        // 相鄰圖塊上下鏡射，讓生成素材的接邊連續；兩張為一個循環。
+        ctx.save();
+        ctx.translate(0, y + (j % 2 !== 0 ? tileHeight : 0));
+        if (j % 2 !== 0) ctx.scale(1, -1);
+        ctx.drawImage(art.background, 0, 0, W, tileHeight);
+        ctx.restore();
       }
     } else {
       ctx.fillStyle = '#91a876'; ctx.fillRect(0,0,W,H);
@@ -400,6 +443,7 @@
   $('resumeBtn').onclick=resumeGame;ui.pause.onclick=()=>state==='paused'?resumeGame():pauseGame();
   document.querySelectorAll('.sound-toggle').forEach(b=>b.onclick=toggleSound); renderSoundButtons();
   addEventListener('keydown',e=>{
+    if (e.target instanceof HTMLElement && e.target.closest('select, input, textarea')) return;
     const k=e.key.length===1?e.key.toLowerCase():e.key;
     if(['ArrowLeft','ArrowRight','ArrowUp',' '].includes(k))e.preventDefault();
     if(k==='ArrowLeft'||k==='a')move(-1);if(k==='ArrowRight'||k==='d')move(1);if(k===' '||k==='ArrowUp'||k==='w')jump();

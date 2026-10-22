@@ -15,9 +15,9 @@
   let W = 390, H = 760, dpr = 1;
   let state = 'menu';
   let score = 0, available = 0, distance = 0, speed = 240, spawnTimer = 0, last = 0, time = 0;
-  let backgroundOffset = 0, hearts = 3, shake = 0, safeLane = 1, jumpBuffer = 0, lastTap = { time: 0, lane: 1 };
+  let backgroundOffset = 0, hearts = 3, shake = 0, safeLane = 1, jumpBuffer = 0;
   // 跳躍：初速與重力一起調高，起跳更快、落地更俐落（滯空約 0.58 秒）
-  const JUMP_V = 760, GRAVITY = 2600, DOUBLE_TAP_MS = 250;
+  const JUMP_V = 760, GRAVITY = 2600;
   let currentStage = 0, stageBannerTimer = null;
   // 每顆心可承受一次石頭／木頭撞擊；改成 1 即回到「一撞就結束」
   const MAX_HEARTS = 3;
@@ -114,7 +114,7 @@
   function reset(stageIndex = currentStage) {
     // 開場留 1.3 秒給關卡橫幅，避免一開始就撞上東西
     score = 0; available = 0; distance = 0; speed = stages[stageIndex].speed[0]; spawnTimer = 1.3; objects = []; particles = []; floaters = [];
-    backgroundOffset = 0; hearts = MAX_HEARTS; shake = 0; safeLane = 1; jumpBuffer = 0; lastTap.time = 0;
+    backgroundOffset = 0; hearts = MAX_HEARTS; shake = 0; safeLane = 1; jumpBuffer = 0;
     currentStage = stageIndex; ui.stageLabel.textContent = stages[currentStage].code;
     player.lane = 1; player.x = player.targetX = laneX(1); player.jump = player.jumpV = player.hurt = 0;
     updateHUD();
@@ -140,7 +140,7 @@
     currentStage = index;
     const stage = stages[index];
     ui.stageLabel.textContent = stage.code;
-    ui.stageBanner.innerHTML = `<small>${stage.code}</small><br>${stage.name}` + (index === 0 ? '<br><small class="banner-tip">← 點左半邊　點右半邊 →　點兩下跳躍</small>' : '');
+    ui.stageBanner.innerHTML = `<small>${stage.code}</small><br>${stage.name}` + (index === 0 ? '<br><small class="banner-tip">← 點左半邊　點右半邊 →　下方按鈕跳躍</small>' : '');
     ui.stageBanner.classList.add('show');
     clearTimeout(stageBannerTimer);
     stageBannerTimer = setTimeout(() => ui.stageBanner.classList.remove('show'), 1700);
@@ -192,14 +192,6 @@
   // 落地前一小段時間按跳也會記住，落地立刻起跳
   function jump() { if (state === 'playing') jumpBuffer = .14; }
   function doJump() { player.jumpV = JUMP_V; player.jump = 1; jumpBuffer = 0; burst(player.x, player.y + 24, '#e9efcf', 5); sfx.jump(); }
-  // 點一下換線；短時間內點第二下視為「點兩下」：撤回第一下的換線，原地跳起
-  function tap(dir) {
-    if (state !== 'playing') return;
-    const now = performance.now();
-    if (now - lastTap.time < DOUBLE_TAP_MS) {
-      player.lane = lastTap.lane; player.targetX = laneX(player.lane); lastTap.time = 0; jump();
-    } else { lastTap = { time: now, lane: player.lane }; move(dir); }
-  }
   function randomHazard(stage) {
     if (Math.random() < .5) { const r = Math.random(); return { type: 'enemy', kind: stage.snake && r < .3 ? 'snake' : r < .62 ? 'bear' : 'caterpillar' }; }
     return { type: 'obstacle', kind: Math.random() < .54 ? 'rock' : 'log' };
@@ -285,7 +277,7 @@
         if (hearts <= 0) {
           // 立刻進入 dying，避免在延遲期間暫停或過關而躲掉這次死亡
           state = 'dying'; showToast('撞到障礙物！', true); setTimeout(gameOver, 240);
-        } else showToast(hearts === 1 ? '小心！只剩最後一顆心' : '撞到了！點兩下可以跳過', true);
+        } else showToast(hearts === 1 ? '小心！只剩最後一顆心' : '撞到了！按跳躍可以越過', true);
       }
     }
   }
@@ -405,8 +397,11 @@
     // 選單畫面按 Enter 直接按下該畫面的主要按鈕
     if(k==='Enter'&&state!=='playing'){const btn=document.querySelector('.overlay.is-visible .primary-button:not([hidden])');if(btn){e.preventDefault();btn.click();}}
   });
-  // 點畫面左半邊往左一格、右半邊往右一格，按下瞬間就移動；快速點兩下跳躍
-  canvas.addEventListener('pointerdown',e=>{e.preventDefault();const box=canvas.getBoundingClientRect();tap(e.clientX-box.left<box.width/2?-1:1);});
+  // 點畫面左半邊往左一格、右半邊往右一格，按下瞬間就移動；跳躍用底部按鈕
+  canvas.addEventListener('pointerdown',e=>{e.preventDefault();const box=canvas.getBoundingClientRect();move(e.clientX-box.left<box.width/2?-1:1);});
+  const jumpBtn=$('jumpBtn');
+  jumpBtn.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();jumpBtn.classList.add('is-pressed');jump();});
+  ['pointerup','pointercancel','pointerleave'].forEach(n=>jumpBtn.addEventListener(n,()=>jumpBtn.classList.remove('is-pressed')));
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
   addEventListener('resize',resize);resize();renderStageSelect();requestAnimationFrame(loop);
 })();

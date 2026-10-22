@@ -16,8 +16,10 @@
   let state = 'menu';
   let score = 0, available = 0, distance = 0, speed = 240, spawnTimer = 0, last = 0, time = 0;
   let backgroundOffset = 0, hearts = 3, shake = 0, safeLane = 1, jumpBuffer = 0;
-  // 跳躍：初速與重力一起調高，起跳更快、落地更俐落（滯空約 0.58 秒）
-  const JUMP_V = 760, GRAVITY = 2600;
+  // 跳躍：初速與重力一起調高，起跳更快、落地更俐落（滯空約 0.65 秒）
+  const JUMP_V = 780, GRAVITY = 2400;
+  // 判定：危險物碰到角色的那一刻，離地超過 AIRBORNE 就算跳過；HAZARD_RANGE 為危險物的上下判定範圍
+  const AIRBORNE = 15, HAZARD_RANGE = 34, PICKUP_RANGE = 43;
   let currentStage = 0, stageBannerTimer = null;
   // 每顆心可承受一次石頭／木頭撞擊；改成 1 即回到「一撞就結束」
   const MAX_HEARTS = 3;
@@ -244,7 +246,7 @@
     for (const o of objects) {
       o.y += speed * dt;
       o.phase += dt * 4;
-      if (!o.hit && o.type !== 'decor' && o.lane === player.lane && Math.abs(o.y - player.y) < 43) collide(o);
+      if (!o.hit && !o.cleared && o.lane === player.lane && Math.abs(o.y - player.y) < (o.type === 'pickup' ? PICKUP_RANGE : HAZARD_RANGE)) collide(o);
       if (state !== 'playing') break;
       // 錯過的道具也算進本局可拿總分
       if (o.type === 'pickup' && !o.counted && o.y > player.y + 43) { o.counted = true; available += pickupDefs[o.kind].score; }
@@ -264,7 +266,10 @@
     if (o.type === 'pickup') {
       o.hit = o.remove = o.counted = true; score += pickupDefs[o.kind].score; available += pickupDefs[o.kind].score;
       floatText(laneX(o.lane), o.y - 30, pickupDefs[o.kind].label, '#fff1b0'); burst(laneX(o.lane), o.y, '#ffe08b', 10); sfx.pickup(o.kind === 'pancake');
-    } else if (player.jump < 45) {
+    } else if (player.jump > AIRBORNE) {
+      // 碰到的那一刻人在空中：這個危險物就算跳過，之後落地也不會再撞
+      o.cleared = true; floatText(player.x, player.y - player.jump - 70, '跳過！', '#dff3c4');
+    } else {
       o.hit = true;
       if (player.hurt > 0) return; // 受傷後短暫無敵，閃爍期間直接穿過
       if (o.type === 'enemy') {
